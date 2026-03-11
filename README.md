@@ -29,7 +29,7 @@ The system is not a single-server deployment. It uses two cloud nodes with speci
 | **VM1 — Central Intelligence** | Oracle Cloud (Ashburn, USA) | 4-core ARM, 24 GB RAM (Always Free) | Intensive compute: NSGA-III optimization, backtesting, HMM/GRU model training, historical TimescaleDB (primary) |
 | **VM2 — Execution Node** | GCP (Tokyo, Japan) | e2-medium (2 vCPU, 4 GB RAM) | Real-time trading: signal generation, risk validation, order execution (<10 ms to Bybit), replica TimescaleDB (30 days) |
 
-Both nodes are connected via **WireGuard VPN tunnels**. The Oracle Ashburn node exports trained model weights to GCP Tokyo via `rsync` over SSH after each optimization cycle. The Kill-Switch can be triggered globally from either node via the DB-persisted flag.
+Both nodes are connected via **Netbird VPN** (peer-to-peer overlay network). The Oracle Ashburn node exports trained model weights to GCP Tokyo via `rsync` over SSH after each optimization cycle. The Kill-Switch can be triggered globally from either node via the DB-persisted flag.
 
 ---
 
@@ -44,7 +44,7 @@ Both nodes are connected via **WireGuard VPN tunnels**. The Oracle Ashburn node 
 │  │ (backtests, │  │  (NSGA-III,  │  │  + svc-feed (global market data)   │ │
 │  │  CPCV, WFO) │  │  HMM, GRU)  │  └────────────────────────────────────┘ │
 │  └─────────────┘  └──────────────┘                                         │
-│         │ rsync model weights + config over WireGuard VPN                  │
+│         │ rsync model weights + config over Netbird VPN                      │
 └─────────┼───────────────────────────────────────────────────────────────────┘
           │
           ▼
@@ -191,7 +191,7 @@ This is the system's defining differentiator. Tax compliance is embedded at the 
 | **Data**           | TimescaleDB (PostgreSQL extension), Parquet                                                       |
 | **Exchange**       | Bybit V5 WebSocket + REST (CCXT), IBKR Gateway (equities)                                        |
 | **Infra**          | Docker Compose, Oracle Cloud Ashburn (4-core ARM, 24 GB), GCP Tokyo (e2-medium, <10 ms to Bybit) |
-| **Networking**     | WireGuard VPN (inter-node), 3-tier Docker networks, no public DB ports                           |
+| **Networking**     | Netbird VPN (inter-node overlay), 3-tier Docker networks, no public DB ports                             |
 | **Monitoring**     | Prometheus, Grafana + Loki, n8n, custom health endpoints                                         |
 | **Security**       | Bitwarden Secret Manager, Docker secrets (`/run/secrets/`), 3-tier network isolation             |
 | **Optimization**   | NSGA-III (pymoo), Monte Carlo, CPCV, Walk-Forward Optimization (WFO)                             |
