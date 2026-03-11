@@ -14,48 +14,67 @@
 
 ## Overview
 
-**Sistema Centinela** is a production-grade algorithmic trading system built on a Service-Oriented Architecture (SOA) with 7 Docker microservices deployed on GCP (Tokyo Region). It implements the **TF-01 Golden Cross Dual 70/30** strategy on Bybit Exchange, embedding **native fiscal compliance** for Mexican tax law (SAT / LISR / UIF) at the execution layer — not as an afterthought.
+**Sistema Centinela** is a production-grade algorithmic **Trend Following** trading system built on a Service-Oriented Architecture (SOA) with 7 Docker microservices distributed across two specialized cloud nodes. It implements the **TF-01 Golden Cross Dual 70/30** strategy on Bybit Exchange (EMA 21/150 on 4H candles), embedding **native fiscal compliance** for Mexican tax law (SAT / LISR / UIF) at the execution layer.
 
-**Core philosophy:** _"Risk-First Execution"_ — no order reaches the market without passing through the `RiskGatekeeper` (`svc-risk`).
+**Core philosophy:** *"Risk-First Execution"* — no order reaches the market without passing through the `RiskGatekeeper` (`svc-risk`).
+
+---
+
+## Infrastructure: Dual-Node Architecture
+
+The system is not a single-server deployment. It uses two cloud nodes with specialized roles:
+
+| Node | Provider | Specs | Role |
+|------|----------|-------|------|
+| **VM1 — Central Intelligence** | Oracle Cloud (Ashburn, USA) | 4-core ARM, 24 GB RAM (Always Free) | Intensive compute: NSGA-III optimization, backtesting, HMM/GRU model training, historical TimescaleDB (primary) |
+| **VM2 — Execution Node** | GCP (Tokyo, Japan) | e2-medium (2 vCPU, 4 GB RAM) | Real-time trading: signal generation, risk validation, order execution (<10 ms to Bybit), replica TimescaleDB (30 days) |
+
+Both nodes are connected via **WireGuard VPN tunnels**. The Oracle Ashburn node exports trained model weights to GCP Tokyo via `rsync` over SSH after each optimization cycle. The Kill-Switch can be triggered globally from either node via the DB-persisted flag.
 
 ---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        GCP — Tokyo Region                          │
-│                                                                     │
-│  ┌──────────┐   OHLCV 5m/4H   ┌──────────────┐                    │
-│  │ svc-feed │ ──────────────▶ │  TimescaleDB │                    │
-│  └──────────┘                 └──────┬───────┘                    │
-│                                      │                             │
-│  ┌───────────┐  EMA 21/150 4H        │                            │
-│  │ svc-brain │ ◀────────────────────┘   ──▶ BUY/SELL signal       │
-│  └─────┬─────┘                                                     │
-│        │ Señal                                                      │
-│        ▼                                                            │
-│  ┌──────────┐  Validates: drawdown, Kelly 0.3×,                    │
-│  │ svc-risk │  FIFO cost basis, UIF $50K MXN,                      │
-│  └─────┬────┘  Kill-Switch flag in DB                               │
-│        │ Signed order + risk_signature                              │
-│        ▼                                                            │
-│  ┌──────────┐   Marketable LIMIT                                   │
-│  │ svc-exec │ ─────────────────────────────▶  Bybit API V5         │
-│  └──────────┘   (reprice T+30s, cancel T+120s)                     │
-│                                                                     │
-│  ┌─────────────┐  Bybit → Blockchain → Bitso → SPEI                │
-│  │ svc-watcher │  (repatriation pipeline with tx_hash)             │
-│  └─────────────┘                                                    │
-│                                                                     │
-│  ┌─────────────┐  NSGA-III multi-objective optimization,           │
-│  │   svc-lab   │  CPCV backtesting (read-only DB access)           │
-│  └─────────────┘                                                    │
-│                                                                     │
-│  ┌───────────────┐  Health checks, Prometheus alerts, n8n          │
-│  │  svc-monitor  │                                                  │
-│  └───────────────┘                                                  │
-└─────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│    ORACLE CLOUD — Ashburn, USA (4-core ARM, 24 GB — Central Intelligence)   │
+│                                                                             │
+│  ┌─────────────┐  ┌──────────────┐  ┌────────────────────────────────────┐ │
+│  │  svc-lab    │  │ svc-optimizer│  │  TimescaleDB (primary — historical) │ │
+│  │ (backtests, │  │  (NSGA-III,  │  │  + svc-feed (global market data)   │ │
+│  │  CPCV, WFO) │  │  HMM, GRU)  │  └────────────────────────────────────┘ │
+│  └─────────────┘  └──────────────┘                                         │
+│         │ rsync model weights + config over WireGuard VPN                  │
+└─────────┼───────────────────────────────────────────────────────────────────┘
+          │
+          ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  GCP — Tokyo, Japan (2 vCPU, 4 GB — Execution Node, <10 ms to Bybit)       │
+│                                                                             │
+│  ┌──────────┐   OHLCV 4H WebSocket   ┌──────────────────────────────────┐  │
+│  │ svc-feed │ ──────────────────────▶ │ TimescaleDB (replica — 30 days)  │  │
+│  └──────────┘                        └──────────────────┬───────────────┘  │
+│                                                         │                  │
+│  ┌───────────┐  EMA 21/150 Golden/Death Cross           │                  │
+│  │ svc-brain │ ◀──────────────────────────────────────── ┘                 │
+│  └─────┬─────┘                                                             │
+│        │ BUY/SELL signal                                                    │
+│        ▼                                                                   │
+│  ┌──────────┐  Validates: drawdown (-4%/-7%), Kelly 0.3×,                  │
+│  │ svc-risk │  FIFO cost basis, UIF $50K MXN, Kill-Switch (DB flag)        │
+│  └─────┬────┘                                                              │
+│        │ Signed order + risk_signature                                      │
+│        ▼                                                                   │
+│  ┌──────────┐   Marketable LIMIT (reprice T+30s, cancel T+120s)            │
+│  │ svc-exec │ ─────────────────────────────────────────▶  Bybit API V5     │
+│  └──────────┘                                                              │
+│  ┌─────────────┐  Bybit → Blockchain → Bitso → SPEI (tx_hash trace)       │
+│  │ svc-watcher │                                                           │
+│  └─────────────┘                                                           │
+│  ┌───────────────┐  Prometheus + n8n alerts + Grafana/Loki                 │
+│  │  svc-monitor  │                                                         │
+│  └───────────────┘                                                         │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Microservices
@@ -166,16 +185,17 @@ This is the system's defining differentiator. Tax compliance is embedded at the 
 
 ## Technology Stack
 
-| Layer              | Technologies                                                                   |
-| ------------------ | ------------------------------------------------------------------------------ |
-| **Runtime**        | Python 3.11, AsyncIO, FastAPI                                                  |
-| **Data**           | TimescaleDB (PostgreSQL extension), Parquet                                    |
-| **Exchange**       | Bybit V5 WebSocket + REST (CCXT)                                               |
-| **Infra**          | Docker Compose, GCP Compute Engine (Tokyo region)                              |
-| **Monitoring**     | Prometheus, n8n, custom health endpoints                                       |
-| **Security**       | Docker secrets (`/run/secrets/`), 3-tier network isolation, no env-var secrets |
-| **Optimization**   | NSGA-III (pymoo), Monte Carlo, CPCV                                            |
-| **Statistical ML** | GaussHMM (hmmlearn)                                                            |
+| Layer              | Technologies                                                                                      |
+| ------------------ | ------------------------------------------------------------------------------------------------- |
+| **Runtime**        | Python 3.11, AsyncIO, FastAPI                                                                     |
+| **Data**           | TimescaleDB (PostgreSQL extension), Parquet                                                       |
+| **Exchange**       | Bybit V5 WebSocket + REST (CCXT), IBKR Gateway (equities)                                        |
+| **Infra**          | Docker Compose, Oracle Cloud Ashburn (4-core ARM, 24 GB), GCP Tokyo (e2-medium, <10 ms to Bybit) |
+| **Networking**     | WireGuard VPN (inter-node), 3-tier Docker networks, no public DB ports                           |
+| **Monitoring**     | Prometheus, Grafana + Loki, n8n, custom health endpoints                                         |
+| **Security**       | Bitwarden Secret Manager, Docker secrets (`/run/secrets/`), 3-tier network isolation             |
+| **Optimization**   | NSGA-III (pymoo), Monte Carlo, CPCV, Walk-Forward Optimization (WFO)                             |
+| **Statistical ML** | GaussHMM (hmmlearn), GRU model training on Ashburn node                                          |
 
 ---
 
