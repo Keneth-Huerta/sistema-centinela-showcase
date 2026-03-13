@@ -35,46 +35,36 @@ Both nodes are connected via **Netbird VPN** (peer-to-peer overlay network). The
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│    ORACLE CLOUD — Ashburn, USA (4-core ARM, 24 GB — Central Intelligence)   │
-│                                                                             │
-│  ┌─────────────┐  ┌──────────────┐  ┌────────────────────────────────────┐ │
-│  │  svc-lab    │  │ svc-optimizer│  │  TimescaleDB (primary — historical) │ │
-│  │ (backtests, │  │  (NSGA-III,  │  │  + svc-feed (global market data)   │ │
-│  │  CPCV, WFO) │  │  HMM, GRU)  │  └────────────────────────────────────┘ │
-│  └─────────────┘  └──────────────┘                                         │
-│         │ rsync model weights + config over Netbird VPN                      │
-└─────────┼───────────────────────────────────────────────────────────────────┘
-          │
-          ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│  GCP — Tokyo, Japan (2 vCPU, 4 GB — Execution Node, <10 ms to Bybit)       │
-│                                                                             │
-│  ┌──────────┐   OHLCV 4H WebSocket   ┌──────────────────────────────────┐  │
-│  │ svc-feed │ ──────────────────────▶ │ TimescaleDB (replica — 30 days)  │  │
-│  └──────────┘                        └──────────────────┬───────────────┘  │
-│                                                         │                  │
-│  ┌───────────┐  EMA 21/150 Golden/Death Cross           │                  │
-│  │ svc-brain │ ◀──────────────────────────────────────── ┘                 │
-│  └─────┬─────┘                                                             │
-│        │ BUY/SELL signal                                                    │
-│        ▼                                                                   │
-│  ┌──────────┐  Validates: drawdown (-4%/-7%), Kelly 0.3×,                  │
-│  │ svc-risk │  FIFO cost basis, UIF $50K MXN, Kill-Switch (DB flag)        │
-│  └─────┬────┘                                                              │
-│        │ Signed order + risk_signature                                      │
-│        ▼                                                                   │
-│  ┌──────────┐   Marketable LIMIT (reprice T+30s, cancel T+120s)            │
-│  │ svc-exec │ ─────────────────────────────────────────▶  Bybit API V5     │
-│  └──────────┘                                                              │
-│  ┌─────────────┐  Bybit → Blockchain → Bitso → SPEI (tx_hash trace)       │
-│  │ svc-watcher │                                                           │
-│  └─────────────┘                                                           │
-│  ┌───────────────┐  Prometheus + n8n alerts + Grafana/Loki                 │
-│  │  svc-monitor  │                                                         │
-│  └───────────────┘                                                         │
-└─────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    subgraph OC["Oracle Cloud — Ashburn, USA · ARM 4-core 24 GB · Central Intelligence"]
+        direction TB
+        LAB["svc-lab\nBacktests · CPCV · WFO · Monte Carlo"]
+        OPT["svc-optimizer\nNSGA-III · HMM · GRU training"]
+        FEED1["svc-feed\nGlobal market data (28 assets)"]
+        TSDB1[("TimescaleDB Primary\nHistorical · unlimited retention")]
+        FEED1 --> TSDB1
+    end
+
+    subgraph GCP["GCP — Tokyo, Japan · 2 vCPU 4 GB · Execution Node · &lt;10 ms to Bybit"]
+        direction TB
+        FEED2["svc-feed\nOHLCV 4H WebSocket"]
+        TSDB2[("TimescaleDB Replica\n30-day rolling window")]
+        BRAIN["svc-brain\nTF-01 · EMA 21/150 · Golden/Death Cross\nDual trailing stop 70/30 · HMM regime filter"]
+        RISK["svc-risk · RiskGatekeeper\n-4% daily / -7% weekly drawdown\nKelly 0.3× · FIFO cost basis\nUIF $50K MXN · Kill-Switch DB flag"]
+        EXEC["svc-exec\nMarketable LIMIT orders\nreprice T+30s · cancel T+120s"]
+        WATCHER["svc-watcher · Repatriation Monitor\nBybit → Blockchain → Bitso → SPEI\ntx_hash trace per hop"]
+        MONITOR["svc-monitor\nPrometheus · Grafana / Loki · n8n alerts"]
+
+        FEED2 -->|OHLCV 4H WebSocket| TSDB2
+        TSDB2 -->|Read candles| BRAIN
+        BRAIN -->|"BUY / SELL signal"| RISK
+        RISK -->|"Signed order + risk_signature"| EXEC
+    end
+
+    OC <-->|"Netbird VPN · rsync model weights VM1 → VM2"| GCP
+    EXEC -->|Marketable LIMIT| BYBIT(["Bybit API V5"])
+    BYBIT -.->|profits| WATCHER
 ```
 
 ### Microservices
