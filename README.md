@@ -16,7 +16,7 @@
 
 **Sistema Centinela** is a production-grade algorithmic **Trend Following** trading system built on a Service-Oriented Architecture (SOA) with 7 Docker microservices distributed across two specialized cloud nodes. It implements the **TF-01 Golden Cross Dual 70/30** strategy on Bybit Exchange (EMA 21/150 on 4H candles), embedding **native fiscal compliance** for Mexican tax law (SAT / LISR / UIF) at the execution layer.
 
-**Core philosophy:** *"Risk-First Execution"* — no order reaches the market without passing through the `RiskGatekeeper` (`svc-risk`).
+**Core philosophy:** _"Risk-First Execution"_ — no order reaches the market without passing through the `RiskGatekeeper` (`svc-risk`).
 
 ---
 
@@ -24,10 +24,10 @@
 
 The system is not a single-server deployment. It uses two cloud nodes with specialized roles:
 
-| Node | Provider | Specs | Role |
-|------|----------|-------|------|
-| **VM1 — Central Intelligence** | Oracle Cloud (Ashburn, USA) | 4-core ARM, 24 GB RAM (Always Free) | Intensive compute: NSGA-III optimization, backtesting, HMM/GRU model training, historical TimescaleDB (primary) |
-| **VM2 — Execution Node** | GCP (Tokyo, Japan) | e2-medium (2 vCPU, 4 GB RAM) | Real-time trading: signal generation, risk validation, order execution (<10 ms to Bybit), replica TimescaleDB (30 days) |
+| Node                           | Provider                    | Specs                               | Role                                                                                                                    |
+| ------------------------------ | --------------------------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| **VM1 — Central Intelligence** | Oracle Cloud (Ashburn, USA) | 4-core ARM, 24 GB RAM (Always Free) | Intensive compute: NSGA-III optimization, backtesting, HMM/GRU model training, historical TimescaleDB (primary)         |
+| **VM2 — Execution Node**       | GCP (Tokyo, Japan)          | e2-medium (2 vCPU, 4 GB RAM)        | Real-time trading: signal generation, risk validation, order execution (<10 ms to Bybit), replica TimescaleDB (30 days) |
 
 Both nodes are connected via **Netbird VPN** (peer-to-peer overlay network). The Oracle Ashburn node exports trained model weights to GCP Tokyo via `rsync` over SSH after each optimization cycle. The Kill-Switch can be triggered globally from either node via the DB-persisted flag.
 
@@ -185,13 +185,13 @@ This is the system's defining differentiator. Tax compliance is embedded at the 
 
 ## Technology Stack
 
-| Layer              | Technologies                                                                                      |
-| ------------------ | ------------------------------------------------------------------------------------------------- |
-| **Runtime**        | Python 3.11, AsyncIO, FastAPI                                                                     |
-| **Data**           | TimescaleDB (PostgreSQL extension), Parquet                                                       |
+| Layer              | Technologies                                                                                     |
+| ------------------ | ------------------------------------------------------------------------------------------------ |
+| **Runtime**        | Python 3.11, AsyncIO, FastAPI                                                                    |
+| **Data**           | TimescaleDB (PostgreSQL extension), Parquet                                                      |
 | **Exchange**       | Bybit V5 WebSocket + REST (CCXT), IBKR Gateway (equities)                                        |
 | **Infra**          | Docker Compose, Oracle Cloud Ashburn (4-core ARM, 24 GB), GCP Tokyo (e2-medium, <10 ms to Bybit) |
-| **Networking**     | Netbird VPN (inter-node overlay), 3-tier Docker networks, no public DB ports                             |
+| **Networking**     | Netbird VPN (inter-node overlay), 3-tier Docker networks, no public DB ports                     |
 | **Monitoring**     | Prometheus, Grafana + Loki, n8n, custom health endpoints                                         |
 | **Security**       | Bitwarden Secret Manager, Docker secrets (`/run/secrets/`), 3-tier network isolation             |
 | **Optimization**   | NSGA-III (pymoo), Monte Carlo, CPCV, Walk-Forward Optimization (WFO)                             |
@@ -235,7 +235,7 @@ This is not a side project. It is a financial-grade system built to professional
 Interested in discussing the architecture, the strategy mathematics, or the Mexican regulatory framework?
 
 - **Email:** <kenethissac@gmail.com>
-- **LinkedIn:** [linkedin.com/in/keneth-huerta](https://www.linkedin.com/in/keneth-isaac-huerta-moreno-8285552b1/)
+- **LinkedIn:** [linkedin.com/in/keneth-huerta](https://www.linkedin.com/in/keneth-issac-huerta-galindo-313804323/)
 - **GitHub:** [github.com/Keneth-Huerta](https://github.com/Keneth-Huerta)
 
 > _"The goal was never just to build a trading bot. The goal was to build trust — with regulators, with auditors, and with the capital at risk."_
